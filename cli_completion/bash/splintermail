@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# function from https://stackoverflow.com/questions/7267185/bash-autocompletion-add-description-for-possible-completions
+__do_zsh_style_completions () {
+    local cmdtok curtok prevtok
+    local -a WORDS
+    cmdtok=$1
+    curtok=$2
+    prevtok=$3
+    shift ; shift ; shift
+    WORDS=("$@")
+
+
+    local FOR_DISPLAY=1
+    if [ "${__FOO_PREV_LINE:-}" != "$COMP_LINE" ] ||
+            [ "${__FOO_PREV_POINT:-}" != "$COMP_POINT" ]; then
+        __FOO_PREV_LINE=$COMP_LINE
+        __FOO_PREV_POINT=$COMP_POINT
+        FOR_DISPLAY=
+    fi
+
+    local IFS=$'\n'
+    local var maxlen extra finisher
+    maxlen=0
+    for WORD in "${WORDS[@]}"; do
+        IFS=\| read -ra SP <<<"$WORD"
+        var=${SP[0]}
+        [ ${#var} -gt "$maxlen" ] && maxlen=${#var}
+    done
+
+    COMPREPLY=($(
+        for WORD in "${WORDS[@]}"; do
+            IFS=\| read -ra SP <<<"$WORD"
+            if [ "${SP[0]:0:${#curtok}}" == "$curtok" ]; then
+                if [ -n "$FOR_DISPLAY" ]; then
+                    var=${SP[0]}
+                    extra=$((maxlen - ${#var}))
+                    var=${SP[1]}
+                    finisher=$((COLUMNS - ${#var} - maxlen - 4))
+                    printf "%s%"$extra"s -- ${SP[1]}" ${SP[0]}
+                    printf "%"$finisher"s\n"
+                else
+                    echo "${SP[0]}"
+                fi
+            fi
+        done
+    ))
+}
+
+__splintermail () {
+    local cmdtok curtok prevtok
+    local -a WORDS
+    cmdtok=$1
+    curtok=$2
+    prevtok=$3
+
+    case "$prevtok" in
+        "$cmdtok" )
+            WORDS=(
+                "list_public_keys|show list of gpg public keys used for encryption"
+                "add_public_key|add a gpg public to be used for encryption"
+                "delete_public_key|stop encrypting with a gpg public key"
+                "add_free_alias|generate a new free alias"
+                "add_paid_alias|pick a new paid alias"
+                "delete_alias|delete an alias"
+                "list_aliases|show all aliases"
+                "account_info|show info on account"
+                "dev_mail_list|support splintermail by reviewing code"
+                "spam_sorting|sort spam into folder after analysis"
+                "spamassassin|turn spamassassin spam detection on/off"
+                "delete_all_mail|quickly wipe all your mail off of the server"
+                "delete_all_aliases|quickly wipe all your aliases off of the server"
+              )
+            ;;
+        "spamassassin" )
+            WORDS=(
+                "on|less spam, conceivably less privacy"
+                "off|more spam, conceivably more privacy"
+              )
+            ;;
+        "spam_sorting" )
+            WORDS=(
+                "on|sort spam (if spamassassin is on), good for IMAP"
+                "off|for users who filter spam locally after running POP"
+              )
+            ;;
+        "dev_mail_list" )
+            WORDS=(
+                "on|support splintermail by occasionally reviewing code"
+                "off|we won't bother you"
+              )
+            ;;
+        "add_public_key" )
+            # the first awk script gets uid's for private keys
+            # the second one prints the fingerprints:"emails" for _arguments
+            WORDS=($(gpg --with-colons -K | awk -F : '
+                {
+                  if ($1 == "fpr")
+                      fpr = $10;
+                  if ($1 == "uid") {
+                      email = $10
+                      sub( /^[^<]*</, "", email)
+                      sub( />[^>]*$/, "", email)
+                      print email "|" fpr
+                  }
+                }
+            '))
+            ;;
+        * )
+            WORDS=(
+                "--json|output raw json responses"
+                "--config|specify the encrypted username and password file"
+                "--help|show information and usage"
+              )
+            ;;
+    esac
+
+    #echo "|$cmdtok|$prevtok|$curtok|"
+
+    __do_zsh_style_completions "$@" "${WORDS[@]}"
+}
+
+
+complete -F __splintermail splintermail

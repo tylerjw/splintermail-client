@@ -1,0 +1,199 @@
+#!/usr/bin/env python3
+from sys import stdin,stdout,stderr,exit,argv
+from urllib import request
+import urllib.error
+from json import loads,dumps
+from base64 import b64encode,b64decode
+from time import time
+from pprint import pprint
+import os
+import getopt
+from subprocess import Popen,PIPE
+
+
+def get_unpw(stdin_used,path=None):
+    path = path if path else '~/.splintermail.gpg'
+    path = os.path.expanduser(path)
+    if os.path.isfile(path):
+        # read passwords from password file
+        with open(path,'rb') as f:
+            h = Popen(['gpg','-q','--batch','-d'],
+                    stdin=f,stdout=PIPE,stderr=PIPE)
+            decrypted = h.stdout.read()
+            err = h.stderr.read()
+            ret = h.wait()
+            if ret != 0:
+                raise ValueError('gpg says:\n'+err.decode('utf8'))
+        # parse username and password, one per line, password is b64 encoded
+        username = decrypted.split(b'\n')[0]
+        password = b64decode(decrypted.split(b'\n')[1])
+        save_creds = False
+        return username, password, save_creds
+    else:
+        if stdin_used == True:
+            print('unable to prompt user for username and password; stdin already used by command',file=stderr)
+            exit(1)
+        # prompt user for password
+        print('Encrypted password storage not found at:',file=stderr)
+        print('    "'+path+'"',file=stderr)
+        print('Enter username and password:',file=stderr)
+        try:
+            print('username:',end='',file=stderr); username = input().encode('utf8')
+            print('password:',end='',file=stderr); password = input().encode('utf8')
+        except KeyboardInterrupt:
+            print('operation cancelled by user',file=stderr)
+            exit(1)
+        save_creds = True
+        return username, password, save_creds
+
+def save_unpw(username,password,path=None):
+    path = path if path else '~/.splintermail.gpg'
+    path = os.path.expanduser(path)
+    h = Popen(['gpg','-q','--batch','-ae','--default-recipient-self'],
+            stdin=PIPE,stdout=PIPE,stderr=PIPE)
+    # write username and password, one per line, password is b64 encoded
+    h.stdin.write(username+b'\n'+b64encode(password))
+    h.stdin.close()
+    out = h.stdout.read()
+    err = h.stderr.read()
+    ret = h.wait()
+    if ret != 0:
+        print('gpg encryption error:\n'+err.decode('utf8'),file=stderr)
+    else:
+        with open(path,'wb') as f:
+            f.write(out)
+
+
+# identifiers can be fingerprints or emails
+def dump_key(key_identifiers):
+    contents = []
+    for identifier in set(key_identifiers):
+        h = Popen(['gpg','--armor','--export',identifier],
+                stdout=PIPE,stderr=PIPE)
+        contents.append(h.stdout.read().decode('utf8'))
+        err = h.stderr.read()
+        ret = h.wait()
+        if ret != 0:
+            print('error, gpg says:\n'+err.decode('utf8'),file=stderr)
+            exit(2)
+    filecontents =  (''.join(contents))
+    return filecontents
+
+
+def print_usage():
+    print(\
+'''splintermail: command line client to the Splintermail.com REST API.
+
+usage: splintermail [OPTIONS] COMMAND [ARGS] ...
+
+COMMANDS:
+list_aliases                        Show a list of all aliases on your account
+add_free_alias                      Generate a new free alias
+add_paid_alias ALIAS                Request ALIAS as a new paid alias
+delete_alias ALIAS                  Delete ALIAS from your account
+list_public_keys                    List public keys uploaded to your account.
+                                    Splintermail.com encrypts your stored
+                                    emails to each public key on your account
+add_public_key (EMAIL|FINGERPRINT)  Upload a public key from your gpg keyring
+                                    to your account with Splintermail.com.
+                                    Only upload keys where you control the
+                                    private key.
+delete_public_key FINGERPRINT       delete a public key from the
+                                    Splintermail.com server.
+account_info                        View detailed account information
+dev_mail_list (on|off)              support Splintermail.com by reviewing code
+spam_sorting (on|off)               disable spam sorting following analysis.
+                                    Should be enabled for POP3 users.
+spamassassin (on|off)               Turn spamassisin on/off for incoming emails
+delete_all_aliases                  quickly remove all aliases from the server
+delete_all_mail                     quickly delete all mail from the server
+
+
+OPTIONS:
+
+-j, --json                          output raw json response
+-h, --help                          print this help text
+-c, --config FILE                   select config file location,
+                                    default location: ~/.splintermail.gpg
+'''
+         )
+
+
+if __name__ == '__main__':
+    try:
+        opts,args = getopt.gnu_getopt(argv[1:],'hjc:',['help','json','config='])
+    except getopt.GetoptError as e:
+        print(e,file=stderr)
+        print('try `splintermail --help` for information and usage',file=stderr)
+        exit(1)
+    # handle flags and switches
+    help_switch = '-h' in [ o[0] for o in opts ] or '--help' in [ o[0] for o in opts ]
+    if help_switch:
+        print_usage()
+        exit(0)
+    json_switch = '-j' in [ o[0] for o in opts ] or '--json' in [ o[0] for o in opts ]
+    if '-c' in [ o[0] for o in opts ] or '--config' in [ o[0] for o in opts ]:
+        config_path = [ o[1] for o in opts if o[0] == '-c' or o[0] == '--config'][-1]
+    else:
+        config_path = None
+
+    if len(args) < 1:
+        print('error, must specify at least the api command',file=stderr)
+        exit(1)
+    command = args[0]
+    args = args[1:]
+    stdin_used = False
+    # handle command add_public_key which has to pass a file
+    if command == 'add_public_key':
+        if len(args) > 0:
+            filecontents = dump_key(args)
+            args = []
+        else:
+            print('reading keyfile from stdin...',file=stderr)
+            filecontents = stdin.read()
+            stdin_used = True
+    else:
+        filecontents = ''
+
+    # handle delete_all_aliases and delete_all_mail which need confirmation
+    if command == 'delete_all_aliases' or command == 'delete_all_mail':
+        if (' '.join(args)).lower() != 'i am really sure i want this':
+            print('Command  must be followed by the argument:\n'+
+            '    "I am really sure I want this" (case insensitive)\n'+
+            'or it will not be executed.\n'+
+            '\n'+
+            'Example:\n',
+            '    splintermail '+command+' "I am really sure I want this"\n',
+                    file=stderr)
+            exit(1)
+        args = []
+
+    un,pw,save_creds = get_unpw(stdin_used,path=config_path)
+    # add basic auth hedaer to a request to the api
+    path = '/api/'+command
+    req = request.Request('https://splintermail.com'+path)
+    b64auth = b64encode(b'%s:%s'%(un,pw)).decode('utf8')
+    req.add_header('Authorization','Basic %s'%b64auth)
+    try:
+        resp = request.urlopen(req,
+                data=b64encode(dumps({'command':command,
+                                      'args':args,
+                                      'filecontents':filecontents}).encode('utf8')))
+    except KeyboardInterrupt:
+        print('operation cancelled by user',file=stderr)
+        exit(1)
+    except urllib.error.HTTPError as he:
+        print(he.code,file=stderr)
+        print(he.reason,file=stderr)
+        exit(1)
+
+    # save creds if we had to ask for them, now that we have verified them
+    if save_creds:
+        save_unpw(un,pw,path=config_path)
+
+    j = loads(resp.read())
+    if json_switch:
+        stdout.write(dumps(j,indent='    ')+"\n")
+    else:
+        pprint(j['status'])
+        pprint(j['contents'])

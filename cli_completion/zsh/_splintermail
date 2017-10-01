@@ -1,0 +1,77 @@
+#compdef splintermail
+
+local -a prevwords prevargs switches cmd
+
+# get command so we don't have to hard code it
+cmd="$words[1]"
+# get all tokens on commandline, separate args from switches
+prevwords=($words[1,-2])
+prevargs=()
+switches=()
+for r in $prevwords; do
+    [[ "$r" = -* ]] && switches+="$r" || prevargs+="$r"
+done
+# list of options common to all completions
+optspecs=('--json[output raw json response]' '-j[output raw json response]' '--config[encrypted username and password storage]:config file:_files' '-c[encrypted username and password storage]:config file:_files')
+
+case "$prevargs" in
+    "$cmd")
+    _arguments $optspecs '::public key manipulation:((
+        list_public_keys\:"show list of gpg public keys used for encryption"
+        add_public_key\:"add a gpg public to be used for encryption"
+        delete_public_key\:"stop encrypting with a gpg public key"
+        ))' \
+        '::alias commands:((
+        add_free_alias\:"generate a new free alias"
+        add_paid_alias\:"pick a new paid alias"
+        delete_alias\:"delete an alias"
+        list_aliases\:"show all aliases"
+        ))' \
+        '::account information:((
+        account_info\:"show info on account"
+        dev_mail_list\:"support splintermail by reviewing code"
+        spam_sorting\:"sort spam into folder after analysis"
+        ))' \
+        '::extra privacy settings:((
+        spamassassin\:"turn spamassassin spam detection on/off"
+        delete_all_mail\:"quickly wipe all your mail off of the server"
+        delete_all_aliases\:"quickly wipe all your aliases off of the server"
+        ))'
+        ;;
+    "$cmd spamassassin")
+        _arguments $optspecs '*:spamassassin setting:((
+            on\:"less spam, conceivably less privacy"
+            off\:"more spam, conceivably more privacy"
+            ))'
+        ;;
+    "$cmd spam_sorting")
+        _arguments $optspecs '*:spam_sorting setting:((
+            on\:"sort spam (if spamassassin is on), good for IMAP"
+            off\:"for users who filter spam locally after running POP"
+            ))'
+        ;;
+    "$cmd dev_mail_list")
+        _arguments $optspecs '*:dev mail list setting:((
+            on\:"support splintermail by occasionally reviewing code"
+            off\:"we won'\''t bother you"
+            ))'
+        ;;
+    "$cmd add_public_key"*)
+        local -a contacts
+        # the first awk script gets uid's for private keys
+        # the second one prints the fingerprints:"emails" for _arguments
+        contacts=$(gpg --with-colons -K | awk -F : '
+            {
+              if ($1 == "fpr")
+                  fpr = $10;
+              if ($1 == "uid") {
+                  email = $10
+                  sub( /^[^<]*</, "", email)
+                  sub( />[^>]*$/, "", email)
+                  print email "\\:" fpr
+              }
+            }
+        ')
+        _arguments $optspecs '*:gpg public key fingerprints:(('$contacts'))'
+        ;;
+esac
