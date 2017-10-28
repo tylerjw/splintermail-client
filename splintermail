@@ -11,13 +11,13 @@ import getopt
 from subprocess import Popen,PIPE
 
 
-def get_unpw(stdin_used,path=None):
+def get_unpw(stdin_used,path=None,gpg='gpg'):
     path = path if path else '~/.splintermail.gpg'
     path = os.path.expanduser(path)
     if os.path.isfile(path):
         # read passwords from password file
         with open(path,'rb') as f:
-            h = Popen(['gpg','-q','--batch','-d'],
+            h = Popen([gpg,'-q','--batch','-d'],
                     stdin=f,stdout=PIPE,stderr=PIPE)
             decrypted = h.stdout.read()
             err = h.stderr.read()
@@ -46,10 +46,10 @@ def get_unpw(stdin_used,path=None):
         save_creds = True
         return username, password, save_creds
 
-def save_unpw(username,password,path=None):
+def save_unpw(username,password,path=None,gpg='gpg'):
     path = path if path else '~/.splintermail.gpg'
     path = os.path.expanduser(path)
-    h = Popen(['gpg','-q','--batch','-ae','--default-recipient-self'],
+    h = Popen([gpg,'-q','--batch','-ae','--default-recipient-self'],
             stdin=PIPE,stdout=PIPE,stderr=PIPE)
     # write username and password, one per line, password is b64 encoded
     h.stdin.write(username+b'\n'+b64encode(password))
@@ -63,12 +63,36 @@ def save_unpw(username,password,path=None):
         with open(path,'wb') as f:
             f.write(out)
 
+def check_for_del_unpw(path):
+    if stdin_used == True:
+        print('bad username/password combination, '+\
+                'but stdin already used by command,',file=stderr)
+        print('therefore unable to ask user for permission '+\
+                'to delete encrypted password storage.',file=stderr)
+        print('Please delete config file manually at \n    '+path,file=stderr)
+    else:
+        while True:
+            # prompt user to delete encrypted password storage
+            print('bad username/password combination, '+\
+                    'delete encrypted password storage? [Y/n]',file=stderr)
+            try:
+                val = input().lower()
+            except KeyboardInterrupt:
+                pass
+            if val == 'y' or val == 'yes'  or val == 'n' or val == 'no':
+                break
+        if val == 'y' or val == 'yes':
+            try:
+                os.remove(path)
+                print('encrypted password storage deleted',file=stderr)
+            except:
+                print('unable to delete encrypted password storage',file=stderr)
 
 # identifiers can be fingerprints or emails
-def dump_key(key_identifiers):
+def dump_key(key_identifiers,gpg='gpg'):
     contents = []
     for identifier in set(key_identifiers):
-        h = Popen(['gpg','--armor','--export',identifier],
+        h = Popen([gpg,'--armor','--export',identifier],
                 stdout=PIPE,stderr=PIPE)
         contents.append(h.stdout.read().decode('utf8'))
         err = h.stderr.read()
@@ -81,7 +105,7 @@ def dump_key(key_identifiers):
 
 
 def print_usage():
-    print(\
+    print(
 '''splintermail: command line client to the Splintermail.com REST API.
 
 usage: splintermail [OPTIONS] COMMAND [ARGS] ...
@@ -115,13 +139,14 @@ OPTIONS:
 -h, --help                          print this help text
 -c, --config FILE                   select config file location,
                                     default location: ~/.splintermail.gpg
-'''
-         )
+--gpg2                              explicitly use gpg2 binary instead of gpg
+''')
 
 
 if __name__ == '__main__':
+    version = 0.1
     try:
-        opts,args = getopt.gnu_getopt(argv[1:],'hjc:',['help','json','config='])
+        opts,args = getopt.gnu_getopt(argv[1:],'hjc:',['help','json','gpg2','config='])
     except getopt.GetoptError as e:
         print(e,file=stderr)
         print('try `splintermail --help` for information and usage',file=stderr)
@@ -132,6 +157,7 @@ if __name__ == '__main__':
         print_usage()
         exit(0)
     json_switch = '-j' in [ o[0] for o in opts ] or '--json' in [ o[0] for o in opts ]
+    gpg = 'gpg2' if '--gpg2' in [ o[0] for o in opts ] else 'gpg'
     if '-c' in [ o[0] for o in opts ] or '--config' in [ o[0] for o in opts ]:
         config_path = [ o[1] for o in opts if o[0] == '-c' or o[0] == '--config'][-1]
     else:
@@ -146,7 +172,7 @@ if __name__ == '__main__':
     # handle command add_public_key which has to pass a file
     if command == 'add_public_key':
         if len(args) > 0:
-            filecontents = dump_key(args)
+            filecontents = dump_key(args,gpg=gpg)
             args = []
         else:
             print('reading keyfile from stdin...',file=stderr)
@@ -157,7 +183,7 @@ if __name__ == '__main__':
 
     # handle delete_all_aliases and delete_all_mail which need confirmation
     if command == 'delete_all_aliases' or command == 'delete_all_mail':
-        if (' '.join(args)).lower() != 'i am really sure i want this':
+        if (args[0]).lower() != 'i am really sure i want this':
             print('Command  must be followed by the argument:\n'+
             '    "I am really sure I want this" (case insensitive)\n'+
             'or it will not be executed.\n'+
@@ -168,7 +194,7 @@ if __name__ == '__main__':
             exit(1)
         args = []
 
-    un,pw,save_creds = get_unpw(stdin_used,path=config_path)
+    un,pw,save_creds = get_unpw(stdin_used,path=config_path,gpg=gpg)
     # add basic auth hedaer to a request to the api
     path = '/api/'+command
     req = request.Request('https://splintermail.com'+path)
@@ -185,13 +211,21 @@ if __name__ == '__main__':
     except urllib.error.HTTPError as he:
         print(he.code,file=stderr)
         print(he.reason,file=stderr)
+        if he.code == 401:
+            check_for_del_unpw()
         exit(1)
 
     # save creds if we had to ask for them, now that we have verified them
     if save_creds:
-        save_unpw(un,pw,path=config_path)
+        save_unpw(un,pw,path=config_path,gpg=gpg)
 
     j = loads(resp.read())
+    # check version reported by api
+    minversion = j['minimum-client-version']
+    del j['minimum-client-version']
+    if version < minversion:
+        print('a new version of splintermail is available, please upgrade.',file=stderr)
+
     if json_switch:
         stdout.write(dumps(j,indent='    ')+"\n")
     else:

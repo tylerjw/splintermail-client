@@ -111,6 +111,7 @@ __splintermail () {
                 "--json|output raw json responses"
                 "--config|specify the encrypted username and password file"
                 "--help|show information and usage"
+                "--gpg-bin|explicitly specify gpg binary"
               )
             ;;
     esac

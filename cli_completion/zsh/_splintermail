@@ -12,7 +12,7 @@ for r in $prevwords; do
     [[ "$r" = -* ]] && switches+="$r" || prevargs+="$r"
 done
 # list of options common to all completions
-optspecs=('--json[output raw json response]' '-j[output raw json response]' '--config[encrypted username and password storage]:config file:_files' '-c[encrypted username and password storage]:config file:_files')
+optspecs=('--help[show information and usage]' '-h[show information and usage]' '--json[output raw json response]' '-j[output raw json response]' '--config[encrypted username and password storage]:config file:_files' '-c[encrypted username and password storage]:config file:_files' '--gpg-bin[explicitly specify gpg binary]')
 
 case "$prevargs" in
     "$cmd")

@@ -4,7 +4,7 @@ Description=ditm downloads completely encrypted emails from the Splintermail.com
 [Service]
 Type=simple
 # no log file because systemd logs stderr and stdout
-ExecStart=/bin/sh -c "cd CODEDIRECTORY && python3 ditm.py --no-logfile"
+ExecStart=/bin/sh -c "cd \"CODEDIRECTORY\" && python3 ditm.py --no-logfile"
 StandardOutput=syslog
 StandardError=syslog
 
