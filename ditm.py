@@ -781,8 +781,6 @@ if __name__ == '__main__':
 
     debug = '-d' in [ o[0] for o in opts ] or '--debug' in [ o[0] for o in opts ]
 
-    gpg = [ o[1] for o in opts if o[0] == '--gpg-bin' ]
-
     portopt = [ o[1] for o in opts if o[0] == '-p' or o[0] == '--port' ]
 
     try:
@@ -804,5 +802,8 @@ if __name__ == '__main__':
 
     gpghomeopt = [ o[1] for o in opts if o[0] == '-g' or o[0] == '--gpg-homedir' ]
     gpghome = None if len(gpghomeopt) == 0 else gpghomeopt[-1]
+
+    gpgopt = [ o[1] for o in opts if o[0] == '--gpg-bin' ]
+    gpg = 'gpg' if len(gpgopt) == 0 else gpgopt[-1]
 
     start_ditm(port,maildir,debug,logfile,gpghome,gpg)
