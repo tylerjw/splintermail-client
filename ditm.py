@@ -273,10 +273,10 @@ class popserver:
             elif command.upper() == b'CAPA':
                 if not self.can_ssl or self.starttls:
                     self.send_data(b'+OK Capability List Follows.\r\n'+
-                                      b'TOP\r\nUIDL\r\n.\r\n')
+                                      b'USER\r\nTOP\r\nUIDL\r\n.\r\n')
                 else:
                     self.send_data(b'+OK Capability List Follows.\r\n'+
-                                      b'TOP\r\nUIDL\r\nSTLS\r\n.\r\n')
+                                      b'USER\r\nTOP\r\nUIDL\r\nSTLS\r\n.\r\n')
             elif command.upper() == b'STAT':
                 if self.state != 'transaction':
                     self.send_data(b'-ERR illegal command outside of TRANSACTION state\r\n')
